@@ -12,62 +12,73 @@ load_dotenv()
 class ClaudeFireAgent:
     def __init__(self):
         self.client = anthropic.Anthropic(api_key=os.getenv("CLAUDE_API_KEY"))
-        self.available_tools = [
+        self.tools = [
             {
                 "name": "get_fire_detections",
-                "description": "Get fire detection data with optional filters",
+                "description": "Get fire detection data from NASA FIRMS satellites and user reports with optional filters for date range, location, confidence level, and data source",
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "start_date": {"type": "string", "description": "Start date (YYYY-MM-DD)"},
-                        "end_date": {"type": "string", "description": "End date (YYYY-MM-DD)"},
-                        "source": {"type": "string", "description": "Fire source (MODIS, VIIRS, USER_REPORTED)"},
-                        "min_confidence": {"type": "integer", "description": "Minimum confidence level"},
-                        "lat_min": {"type": "number", "description": "Minimum latitude"},
-                        "lat_max": {"type": "number", "description": "Maximum latitude"},
-                        "lon_min": {"type": "number", "description": "Minimum longitude"},
-                        "lon_max": {"type": "number", "description": "Maximum longitude"}
+                        "start_date": {"type": "string", "description": "Start date in YYYY-MM-DD format"},
+                        "end_date": {"type": "string", "description": "End date in YYYY-MM-DD format"},
+                        "source": {"type": "string", "description": "Fire data source: MODIS_NRT, VIIRS_SNPP_NRT, VIIRS_NOAA20_NRT, or USER_REPORTED"},
+                        "min_confidence": {"type": "integer", "description": "Minimum confidence level (0-100)"},
+                        "lat_min": {"type": "number", "description": "Minimum latitude for bounding box"},
+                        "lat_max": {"type": "number", "description": "Maximum latitude for bounding box"},
+                        "lon_min": {"type": "number", "description": "Minimum longitude for bounding box"},
+                        "lon_max": {"type": "number", "description": "Maximum longitude for bounding box"}
                     }
                 }
             },
             {
                 "name": "get_fire_predictions",
-                "description": "Get fire prediction data",
+                "description": "Get ML-based fire risk predictions for future fire probability in specified areas",
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "risk_level": {"type": "string", "description": "Risk level (LOW, MEDIUM, HIGH)"},
-                        "min_probability": {"type": "number", "description": "Minimum probability threshold"},
-                        "lat_min": {"type": "number", "description": "Minimum latitude"},
-                        "lat_max": {"type": "number", "description": "Maximum latitude"},
-                        "lon_min": {"type": "number", "description": "Minimum longitude"},
-                        "lon_max": {"type": "number", "description": "Maximum longitude"}
+                        "risk_level": {"type": "string", "description": "Filter by risk level: LOW, MEDIUM, or HIGH"},
+                        "min_probability": {"type": "number", "description": "Minimum probability threshold (0.0-1.0)"},
+                        "lat_min": {"type": "number", "description": "Minimum latitude for bounding box"},
+                        "lat_max": {"type": "number", "description": "Maximum latitude for bounding box"},
+                        "lon_min": {"type": "number", "description": "Minimum longitude for bounding box"},
+                        "lon_max": {"type": "number", "description": "Maximum longitude for bounding box"}
                     }
                 }
             },
             {
                 "name": "report_fire",
-                "description": "Report a new fire sighting",
+                "description": "Submit a new fire sighting report from user observation with location and description",
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "latitude": {"type": "number", "description": "Fire latitude"},
-                        "longitude": {"type": "number", "description": "Fire longitude"},
-                        "description": {"type": "string", "description": "Fire description"},
-                        "reporter_name": {"type": "string", "description": "Reporter name"},
-                        "reporter_contact": {"type": "string", "description": "Reporter contact"}
+                        "latitude": {"type": "number", "description": "Latitude coordinate of fire location"},
+                        "longitude": {"type": "number", "description": "Longitude coordinate of fire location"},
+                        "description": {"type": "string", "description": "Description of fire sighting details"},
+                        "reporter_name": {"type": "string", "description": "Name of person reporting the fire"},
+                        "reporter_contact": {"type": "string", "description": "Contact information of reporter"}
                     },
                     "required": ["latitude", "longitude"]
                 }
             },
             {
                 "name": "get_fire_statistics",
-                "description": "Get fire statistics and analysis",
+                "description": "Get statistical analysis and summaries of fire detection data for specified time periods and groupings",
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "time_period": {"type": "string", "description": "Time period (day, week, month, year)"},
-                        "group_by": {"type": "string", "description": "Group by (source, region, confidence)"}
+                        "time_period": {"type": "string", "description": "Time period for analysis: day, week, month, or year"},
+                        "group_by": {"type": "string", "description": "Group statistics by: source, region, or confidence"}
+                    }
+                }
+            },
+            {
+                "name": "refresh_nasa_data",
+                "description": "Fetch fresh fire detection data from NASA FIRMS API and update the database",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "sources": {"type": "array", "items": {"type": "string"}, "description": "NASA FIRMS data sources to fetch: MODIS_NRT, VIIRS_SNPP_NRT, VIIRS_NOAA20_NRT"},
+                        "days_back": {"type": "integer", "description": "Number of days back to fetch data (1-10)"}
                     }
                 }
             }
@@ -231,66 +242,150 @@ class ClaudeFireAgent:
     
     def execute_tool(self, tool_name: str, tool_input: Dict) -> Dict:
         """Execute a tool function"""
-        if tool_name == "get_fire_detections":
-            return {"result": self.get_fire_detections(**tool_input)}
-        elif tool_name == "get_fire_predictions":
-            return {"result": self.get_fire_predictions(**tool_input)}
-        elif tool_name == "report_fire":
-            return self.report_fire(**tool_input)
-        elif tool_name == "get_fire_statistics":
-            return self.get_fire_statistics(**tool_input)
-        else:
-            return {"error": f"Unknown tool: {tool_name}"}
+        try:
+            if tool_name == "get_fire_detections":
+                return {"result": self.get_fire_detections(**tool_input)}
+            elif tool_name == "get_fire_predictions":
+                return {"result": self.get_fire_predictions(**tool_input)}
+            elif tool_name == "report_fire":
+                return self.report_fire(**tool_input)
+            elif tool_name == "get_fire_statistics":
+                return self.get_fire_statistics(**tool_input)
+            elif tool_name == "refresh_nasa_data":
+                return self.refresh_nasa_data(**tool_input)
+            else:
+                return {"error": f"Unknown tool: {tool_name}"}
+        except Exception as e:
+            return {"error": f"Tool execution failed: {str(e)}"}
+    
+    def refresh_nasa_data(self, sources: List[str] = None, days_back: int = 1) -> Dict:
+        """Refresh fire data from NASA FIRMS API"""
+        if not sources:
+            sources = ["MODIS_NRT", "VIIRS_SNPP_NRT", "VIIRS_NOAA20_NRT"]
+            
+        from nasa_firms_client import NASAFirmsClient
+        nasa_client = NASAFirmsClient()
+        
+        db = next(get_db())
+        
+        all_fires = []
+        for source in sources:
+            fires = nasa_client.get_fire_data(source=source, date_range=days_back)
+            all_fires.extend(fires)
+        
+        # Remove duplicates
+        unique_fires = nasa_client.remove_duplicates(all_fires)
+        
+        # Store in database
+        new_fires_count = 0
+        for fire_data in unique_fires:
+            # Check if fire already exists
+            existing = db.query(FireDetection).filter(
+                FireDetection.latitude == fire_data['latitude'],
+                FireDetection.longitude == fire_data['longitude'],
+                FireDetection.acq_date == fire_data['acq_date'],
+                FireDetection.acq_time == fire_data['acq_time']
+            ).first()
+            
+            if not existing:
+                fire = FireDetection(**fire_data)
+                db.add(fire)
+                new_fires_count += 1
+        
+        db.commit()
+        db.close()
+        
+        return {
+            "status": "success",
+            "new_fires": new_fires_count,
+            "total_fires": len(unique_fires),
+            "sources": sources,
+            "message": f"Fetched {len(unique_fires)} fires from NASA FIRMS, {new_fires_count} new fires added to database"
+        }
     
     def chat(self, user_message: str) -> str:
-        """Main chat interface with tool use"""
-        system_prompt = """You are a helpful AI assistant specializing in fire detection and prediction for stubble burning in Northern India. You have access to tools that allow you to:
+        """Main chat interface with Claude API and tool calling"""
+        system_prompt = """You are an AI assistant specializing in fire detection and prediction for stubble burning in Northern India. 
 
-1. Get fire detection data from NASA FIRMS satellites and user reports
-2. Get fire prediction data from machine learning models
-3. Help users report new fire sightings
-4. Provide statistics and analysis of fire data
+You have access to several tools:
+1. get_fire_detections - Get current fire detection data from NASA FIRMS satellites (MODIS, VIIRS) and user reports
+2. get_fire_predictions - Get machine learning predictions for future fire risk
+3. report_fire - Help users submit new fire sighting reports
+4. get_fire_statistics - Provide statistical analysis of fire data
+5. refresh_nasa_data - Fetch the latest fire data from NASA FIRMS API
 
-When users ask questions, use the appropriate tools to get current data and provide helpful, accurate responses. If a user wants to report a fire, use the report_fire tool with the location information they provide.
+When users ask about fires, always use the appropriate tools to get current, real data. Explain the data sources (MODIS, VIIRS satellites) and provide context about fire confidence levels, risk predictions, and geographic patterns.
 
-Always be helpful and provide context about the data you're showing. Explain what the different fire sources mean (MODIS, VIIRS, USER_REPORTED) and help users understand fire risk levels and predictions."""
+Be proactive in using tools when users ask questions that would benefit from current data."""
 
         try:
             response = self.client.messages.create(
-                model="claude-3-sonnet-20240229",
+                model="claude-3-5-sonnet-20241022",
                 max_tokens=1000,
                 system=system_prompt,
-                messages=[{"role": "user", "content": user_message}],
-                tools=self.available_tools
+                messages=[
+                    {"role": "user", "content": user_message}
+                ],
+                tools=self.tools
             )
             
             # Handle tool use
-            if response.content and any(block.type == "tool_use" for block in response.content):
+            if response.stop_reason == "tool_use":
                 tool_results = []
                 
-                for block in response.content:
-                    if block.type == "tool_use":
-                        tool_result = self.execute_tool(block.name, block.input)
+                for content_block in response.content:
+                    if content_block.type == "tool_use":
+                        tool_name = content_block.name
+                        tool_input = content_block.input
+                        tool_use_id = content_block.id
+                        
+                        # Execute the tool
+                        tool_result = self.execute_tool(tool_name, tool_input)
+                        
                         tool_results.append({
-                            "tool_use_id": block.id,
+                            "tool_use_id": tool_use_id,
                             "content": json.dumps(tool_result)
                         })
                 
                 # Get final response with tool results
-                follow_up = self.client.messages.create(
-                    model="claude-3-sonnet-20240229",
-                    max_tokens=1000,
-                    system=system_prompt,
-                    messages=[
+                if tool_results:
+                    # Prepare messages for follow-up
+                    messages = [
                         {"role": "user", "content": user_message},
-                        {"role": "assistant", "content": response.content},
-                        {"role": "user", "content": tool_results}
+                        {"role": "assistant", "content": response.content}
                     ]
-                )
-                
-                return follow_up.content[0].text if follow_up.content else "I apologize, I couldn't process your request."
+                    
+                    # Add tool results
+                    for tool_result in tool_results:
+                        messages.append({
+                            "role": "user", 
+                            "content": [{
+                                "type": "tool_result",
+                                "tool_use_id": tool_result["tool_use_id"],
+                                "content": tool_result["content"]
+                            }]
+                        })
+                    
+                    follow_up_response = self.client.messages.create(
+                        model="claude-3-5-sonnet-20241022",
+                        max_tokens=1000,
+                        system=system_prompt,
+                        messages=messages
+                    )
+                    
+                    return self._extract_text_content(follow_up_response.content)
             
-            return response.content[0].text if response.content else "I apologize, I couldn't process your request."
+            return self._extract_text_content(response.content)
             
         except Exception as e:
             return f"I encountered an error: {str(e)}. Please try again."
+    
+    def _extract_text_content(self, content) -> str:
+        """Extract text content from Claude response"""
+        if isinstance(content, list):
+            text_parts = []
+            for block in content:
+                if hasattr(block, 'type') and block.type == 'text':
+                    text_parts.append(block.text)
+            return '\n'.join(text_parts)
+        return str(content)

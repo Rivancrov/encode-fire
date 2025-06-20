@@ -12,7 +12,7 @@ class NASAFirmsClient:
         self.base_url = "https://firms.modaps.eosdis.nasa.gov/api"
         
     def get_fire_data(self, 
-                     source: str = "MODIS_C6_1",
+                     source: str = "MODIS_NRT",
                      region: str = "78,20,88,32",  # Northern India bounds
                      date_range: int = 1,
                      date: Optional[str] = None) -> List[Dict]:
@@ -20,7 +20,7 @@ class NASAFirmsClient:
         Fetch fire data from NASA FIRMS API
         
         Args:
-            source: Data source (MODIS_C6_1, VIIRS_SNPP_C2, VIIRS_NOAA20_C2)
+            source: Data source (MODIS_NRT, VIIRS_SNPP_NRT, VIIRS_NOAA20_NRT)
             region: Bounding box as "west,south,east,north"
             date_range: Number of days back from today
             date: Specific date in YYYY-MM-DD format
@@ -52,24 +52,50 @@ class NASAFirmsClient:
                     lon = float(fire_data.get('longitude', 0))
                     
                     if 20 <= lat <= 32 and 78 <= lon <= 88:
-                        fires.append({
-                            'latitude': lat,
-                            'longitude': lon,
-                            'confidence': int(fire_data.get('confidence', 0)),
-                            'brightness': float(fire_data.get('brightness', 0)),
-                            'scan': float(fire_data.get('scan', 0)),
-                            'track': float(fire_data.get('track', 0)),
-                            'acq_date': fire_data.get('acq_date', ''),
-                            'acq_time': fire_data.get('acq_time', ''),
-                            'satellite': fire_data.get('satellite', ''),
-                            'instrument': fire_data.get('instrument', ''),
-                            'version': fire_data.get('version', ''),
-                            'bright_t31': float(fire_data.get('bright_t31', 0)) if fire_data.get('bright_t31') else None,
-                            'frp': float(fire_data.get('frp', 0)) if fire_data.get('frp') else None,
-                            'daynight': fire_data.get('daynight', ''),
-                            'type': int(fire_data.get('type', 0)) if fire_data.get('type') else None,
-                            'source': source
-                        })
+                        try:
+                            # Parse numeric fields safely
+                            confidence = fire_data.get('confidence', '0')
+                            confidence = int(confidence) if confidence.isdigit() else 0
+                            
+                            brightness = fire_data.get('brightness', '0')
+                            brightness = float(brightness) if brightness.replace('.', '').isdigit() else 0.0
+                            
+                            scan = fire_data.get('scan', '0')
+                            scan = float(scan) if scan.replace('.', '').isdigit() else 0.0
+                            
+                            track = fire_data.get('track', '0')
+                            track = float(track) if track.replace('.', '').isdigit() else 0.0
+                            
+                            bright_t31 = fire_data.get('bright_t31', '')
+                            bright_t31 = float(bright_t31) if bright_t31 and bright_t31.replace('.', '').isdigit() else None
+                            
+                            frp = fire_data.get('frp', '')
+                            frp = float(frp) if frp and frp.replace('.', '').isdigit() else None
+                            
+                            fire_type = fire_data.get('type', '')
+                            fire_type = int(fire_type) if fire_type.isdigit() else 0
+                            
+                            fires.append({
+                                'latitude': lat,
+                                'longitude': lon,
+                                'confidence': confidence,
+                                'brightness': brightness,
+                                'scan': scan,
+                                'track': track,
+                                'acq_date': fire_data.get('acq_date', ''),
+                                'acq_time': fire_data.get('acq_time', ''),
+                                'satellite': fire_data.get('satellite', ''),
+                                'instrument': fire_data.get('instrument', ''),
+                                'version': fire_data.get('version', ''),
+                                'bright_t31': bright_t31,
+                                'frp': frp,
+                                'daynight': fire_data.get('daynight', ''),
+                                'type': fire_type,
+                                'source': source
+                            })
+                        except (ValueError, TypeError) as e:
+                            print(f"Error parsing fire data: {e}, data: {fire_data}")
+                            continue
                         
             return fires
             
@@ -82,7 +108,7 @@ class NASAFirmsClient:
                                 sources: List[str] = None) -> List[Dict]:
         """Get data from multiple NASA FIRMS sources"""
         if not sources:
-            sources = ["MODIS_C6_1", "VIIRS_SNPP_C2", "VIIRS_NOAA20_C2"]
+            sources = ["MODIS_NRT", "VIIRS_SNPP_NRT", "VIIRS_NOAA20_NRT"]
             
         all_fires = []
         for source in sources:

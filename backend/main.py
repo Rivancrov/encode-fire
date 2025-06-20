@@ -16,7 +16,7 @@ app = FastAPI(title="Fire Detection & Prediction API", version="1.0.0")
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -41,7 +41,7 @@ async def root():
 
 @app.post("/api/refresh-fire-data")
 async def refresh_fire_data(
-    sources: List[str] = Query(default=["MODIS_C6_1", "VIIRS_SNPP_C2"]),
+    sources: List[str] = Query(default=["MODIS_NRT", "VIIRS_SNPP_NRT"]),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     region: Optional[str] = Query(default=None),
